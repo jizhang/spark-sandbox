@@ -1,6 +1,8 @@
 Spark Sandbox
 =============
 
+[![Build Status](https://travis-ci.org/jizhang/spark-sandbox.svg?branch=master)](https://travis-ci.org/jizhang/spark-sandbox)
+
 ## Install sbt
 
 * Download [sbt-launch.jar][1], and put it into $HOME/bin.
