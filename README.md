@@ -44,7 +44,7 @@ And import the project into Eclipse, provided [ScalaIDE for Eclipse][3] is insta
 ```bash
 $ cd spark-sandbox
 $ sbt package
-$ spark-submit --class Wordcount --master local target/scala-2.10/spark-sandbox_2.10-0.1.0.jar /path/to/somefile.txt 
+$ spark-submit --class Wordcount --master local target/scala-2.10/spark-sandbox_2.10-0.1.0.jar data/wordcount.txt
 ```
 
 ## Logistic Regression
