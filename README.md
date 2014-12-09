@@ -47,6 +47,12 @@ $ sbt package
 $ spark-submit --class Wordcount --master local target/scala-2.10/spark-sandbox_2.10-0.1.0.jar /path/to/somefile.txt 
 ```
 
+## Logistic Regression
+
+```bash
+$ spark-submit --class LogisticRegression --master local target/scala-2.10/spark-sandbox_2.10-0.1.0.jar data/lr_data.txt 10 10
+```
+
 [1]: https://repo.typesafe.com/typesafe/ivy-releases/org.scala-sbt/sbt-launch/0.13.6/sbt-launch.jar
 [2]: http://spark.apache.org/downloads.html
 [3]: http://scala-ide.org/

@@ -10,10 +10,8 @@ object LogisticRegression {
   case class DataPoint(x: Vector[Double], y: Double)
 
   def parsePoint(line: String, d: Int): DataPoint = {
-    val tokens = line.split(" ")
-    val y = tokens(0).toDouble
-    val x = new DenseVector(tokens.slice(1, 1 + d).map(_.toDouble))
-    DataPoint(x, y)
+    val data = line.split(" ").take(d + 1).map(_.toDouble)
+    DataPoint(new DenseVector(data.drop(1)), data(0))
   }
 
   def main(args: Array[String]) {
@@ -23,13 +21,15 @@ object LogisticRegression {
       System.exit(1)
     }
 
-    val sparkConf = new SparkConf().setAppName("LogisticRegression")
     val inputPath = args(0)
-    val sc = new SparkContext(sparkConf)
-    val lines = sc.textFile(inputPath)
     val dimensions = args(1).toInt
-    val points = lines.map(parsePoint(_, dimensions)).cache
     val iterations = args(2).toInt
+
+    val sparkConf = new SparkConf().setAppName("LogisticRegression")
+    val sc = new SparkContext(sparkConf)
+
+    val lines = sc.textFile(inputPath)
+    val points = lines.map(parsePoint(_, dimensions)).cache
 
     val rand = new Random(42)
     var w = DenseVector.fill(dimensions) {
