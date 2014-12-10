@@ -6,3 +6,6 @@
 /.classpath
 /.buildpath
 /.settings
+
+/.cache
+/bin
