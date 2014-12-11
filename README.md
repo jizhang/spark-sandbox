@@ -53,6 +53,12 @@ $ spark-submit --class Wordcount --master local target/scala-2.10/spark-sandbox_
 $ spark-submit --class LogisticRegression --master local target/scala-2.10/spark-sandbox_2.10-0.1.0.jar data/lr_data.txt 10 10
 ```
 
+## In-Memory Log Mining
+
+```bash
+$ spark-submit --class LogMining --master local target/scala-2.10/spark-sandbox_2.10-0.1.0.jar data/logs.txt
+```
+
 [1]: https://repo.typesafe.com/typesafe/ivy-releases/org.scala-sbt/sbt-launch/0.13.6/sbt-launch.jar
 [2]: http://spark.apache.org/downloads.html
 [3]: http://scala-ide.org/
