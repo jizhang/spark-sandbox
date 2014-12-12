@@ -66,6 +66,12 @@ $ nc -lk 9999
 $ spark-submit --class StreamingWordcount --master local[2] target/scala-2.10/spark-sandbox_2.10-0.1.0.jar
 ```
 
+## KMeans
+
+```bash
+$ spark-submit --class KMeans --master local target/scala-2.10/spark-sandbox_2.10-0.1.0.jar data/kmeans_data.txt 2 0.01
+```
+
 [1]: https://repo.typesafe.com/typesafe/ivy-releases/org.scala-sbt/sbt-launch/0.13.6/sbt-launch.jar
 [2]: http://spark.apache.org/downloads.html
 [3]: http://scala-ide.org/
