@@ -9,18 +9,22 @@ object LogMining extends App {
 
   val inputFile = args(0)
 
-  val logs = sc.textFile(inputFile)
-  val errors = logs.filter(log => log.contains("ERROR"))
+  val lines = sc.textFile(inputFile)
+
+  // parse logs
+  val logs = lines.map(_.split("\t"))
+  val errors = logs.filter(_(1) == "ERROR")
   errors.cache()
 
-  // count errors
+  // count error
   println(errors.count())
 
-  // count by apps
-  val apps = errors map { error =>
-    val fields = error.split("\t")
-    (fields(2), 1)
-  }
-  apps.reduceByKey(_ + _).foreach(println)
+  // mysql errors
+  val mysqlErrors = errors.filter(_(2) == "MySQL")
+  mysqlErrors.take(10).map(_ mkString "\t").foreach(println)
+
+  // count error by app
+  val errorApps = errors.map(_(2) -> 1)
+  errorApps.countByKey().foreach(println)
 
 }
