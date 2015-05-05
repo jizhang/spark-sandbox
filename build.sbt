@@ -7,7 +7,7 @@ version := "0.1.0"
 scalaVersion := "2.10.3"
 
 libraryDependencies ++= {
-  val sparkVersion = "1.1.0"
+  val sparkVersion = "1.0.0"
   Seq(
     "org.scalatest" %% "scalatest" % "2.2.1" % "test",
     "org.apache.spark" %% "spark-core" % sparkVersion % "provided",
