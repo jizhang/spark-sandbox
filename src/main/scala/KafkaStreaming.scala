@@ -1,5 +1,3 @@
-package com.anjuke.dm
-
 import org.slf4j.LoggerFactory
 import kafka.utils.ZkUtils
 import org.apache.spark._
@@ -12,14 +10,23 @@ object KafkaStreamingJob {
 
   val logger = LoggerFactory.getLogger(getClass)
 
+  implicit class AugmentArray[T](val arr: Array[T]) {
+    def getOrElse(index: Int, default: T): T = if (arr.length > index) {
+      arr(index)
+    } else {
+      default
+    }
+  }
+
   def main(args: Array[String]): Unit = {
 
-    val conf = new SparkConf().setAppName("KafkaStreamingJob")
-    val ssc = new StreamingContext(conf, Seconds(3))
+    val zkQuorum = args.getOrElse(0, "127.0.0.1:2181")
+    val topic = args.getOrElse(1, "test_topic")
+    val group = args.getOrElse(2, "test_group")
+    val batchInterval = args.getOrElse(3, "3").toInt
 
-    val zkQuorum = "127.0.0.1:2181"
-    val topic = "test_topic"
-    val group = "test_group"
+    val conf = new SparkConf().setAppName("KafkaStreamingJob")
+    val ssc = new StreamingContext(conf, Seconds(batchInterval))
 
     // reset
     logger.info("Reset consumer group: " + group)
