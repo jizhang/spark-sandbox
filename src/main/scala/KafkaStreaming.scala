@@ -6,7 +6,7 @@ import org.apache.spark.streaming.StreamingContext._
 import org.apache.spark.streaming.kafka.KafkaUtils
 
 
-object KafkaStreamingJob {
+object KafkaStreaming {
 
   val logger = LoggerFactory.getLogger(getClass)
 
@@ -35,7 +35,9 @@ object KafkaStreamingJob {
     // create stream
     val lines = KafkaUtils.createStream(ssc, zkQuorum, group, Map(topic -> 1)).map(_._2)
     lines.count.foreachRDD { rdd =>
-      rdd.foreach(println)
+      rdd.foreach { count =>
+        logger.info(count.toString)
+      }
     }
 
     ssc.start()
