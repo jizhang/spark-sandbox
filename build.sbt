@@ -19,7 +19,9 @@ libraryDependencies ++= {
       exclude("com.sun.jdmk", "jmxtools").
       exclude("net.sf.jopt-simple", "jopt-simple").
       exclude("org.slf4j", "slf4j-simple").
-      exclude("org.apache.zookeeper", "zookeeper")
+      exclude("org.apache.zookeeper", "zookeeper"),
+    "org.apache.hbase" % "hbase-common" % "0.98.1-cdh5.1.0" % "provided",
+    "org.apache.hbase" % "hbase-client" % "0.98.1-cdh5.1.0" % "provided"
   )
 }
 
