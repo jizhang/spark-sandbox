@@ -12,6 +12,7 @@ libraryDependencies ++= {
     "org.scalatest" %% "scalatest" % "2.2.1" % "test",
     "org.apache.spark" %% "spark-core" % sparkVersion % "provided",
     "org.apache.spark" %% "spark-mllib" % sparkVersion % "provided",
+    "org.apache.spark" %% "spark-graphx" % sparkVersion % "provided",
     "org.apache.spark" %% "spark-streaming" % sparkVersion % "provided",
     "org.apache.spark" %% "spark-streaming-kafka" % sparkVersion intransitive(),
     ("org.apache.kafka" %% "kafka" % "0.8.1.1").
