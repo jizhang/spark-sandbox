@@ -4,7 +4,7 @@ organization := "com.shzhangji"
 
 version := "0.1.0"
 
-scalaVersion := "2.10.3"
+scalaVersion := "2.10.5"
 
 libraryDependencies ++= {
   val sparkVersion = "1.3.1"
