@@ -13,30 +13,48 @@ object PageRankRecommender {
     val sparkConf = new SparkConf().setAppName("PageRankRecommender").setMaster("local[2]")
     val sc = new SparkContext(sparkConf)
 
-    val users: RDD[(VertexId, (String, String))] = sc.parallelize(Array(
-        (3L, ("rxin", "student")),
-        (7L, ("jgonzal", "postdoc")),
-        (5L, ("franklin", "prof")),
-        (2L, ("istoica", "prof"))))
+    val relationshipMap = Map(
+      "St" -> Seq("Forrest Gump", "Gladiator"),
+      "Sm" -> Seq("Forrest Gump"),
+      "Ab" -> Seq("The Reader", "Slumdog"),
+      "Se" -> Seq("Pulp Fiction", "The Godfather")
+    )
 
-    val relationships: RDD[Edge[String]] = sc.parallelize(Array(
-        Edge(3L, 7L, "collab"),
-        Edge(5L, 3L, "advisor"),
-        Edge(2L, 5L, "colleague"),
-        Edge(5L, 7L, "pi")))
+    val users = relationshipMap.keys.toSeq
+    val movies = relationshipMap.values.flatMap(identity).toSet.toSeq
+    val nodeMap = (users ++ movies).zipWithIndex.toMap
 
-    val defaultUser = ("John Doe", "Missing")
+    val nodeRdd: RDD[(VertexId, Unit)] = sc.parallelize(users.map { user =>
+      (nodeMap(user).toLong, ())
+    }).union(sc.parallelize(movies.map { movie =>
+      (nodeMap(movie).toLong, ())
+    }))
 
-    val graph = Graph(users, relationships, defaultUser)
+    val relationshipRdd: RDD[Edge[Unit]] = sc.parallelize(relationshipMap.flatMap { case (user, movies) =>
+      val userId = nodeMap(user)
+      movies.flatMap { movie =>
+        val movieId = nodeMap(movie)
+        Seq(Edge(userId, movieId, ()), Edge(movieId, userId, ()))
+      }
+    }.toSeq)
 
-    val cnt = graph.vertices.filter { case (id, (name, pos)) => pos == "postdoc" }.count
+    val graph = Graph(nodeRdd, relationshipRdd)
 
-    println(cnt)
+    val nodeIdMap = nodeMap.map(_.swap)
+    val res = graph.personalizedPageRank(nodeMap("Sm"), 0.0001).vertices.flatMap { case (id, rank) =>
+      val name = nodeIdMap(id.toInt)
+      if (name.length > 2) {
+        Some(name, rank)
+      } else {
+        None
+      }
+    }.collect
+
+    res.sortBy(_._2).foreach(println)
 
     pageRank(sc)
 
     sc.stop()
-
   }
 
   def pageRank(sc: SparkContext): Unit = {
@@ -49,8 +67,9 @@ object PageRankRecommender {
     }
 
     val ranksByUsername = users.join(ranks).map { case(id, (username, rank)) => (username, rank) }
+    ranksByUsername.collect.sortBy(_._2).foreach(println)
 
-    println(ranksByUsername.collect.mkString("\n"))
+    ranks.collect.sortBy(_._2).foreach(println)
 
   }
 
