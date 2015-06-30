@@ -13,6 +13,29 @@ object PageRankRecommender {
     val sparkConf = new SparkConf().setAppName("PageRankRecommender").setMaster("local[2]")
     val sc = new SparkContext(sparkConf)
 
+    ppr1(sc)
+
+    sc.stop()
+  }
+
+  def pageRank(sc: SparkContext): Unit = {
+
+    val graph = GraphLoader.edgeListFile(sc, "data/followers.txt")
+    val ranks = graph.pageRank(0.0001).vertices
+    val users = sc.textFile("data/users.txt").map { line =>
+      val fields = line.split(",")
+      (fields(0).toLong, fields(1))
+    }
+
+    val ranksByUsername = users.join(ranks).map { case(id, (username, rank)) => (username, rank) }
+    ranksByUsername.collect.sortBy(_._2).foreach(println)
+
+    ranks.collect.sortBy(_._2).foreach(println)
+
+  }
+
+  def ppr1(sc: SparkContext): Unit = {
+
     val relationshipMap = Map(
       "St" -> Seq("Forrest Gump", "Gladiator"),
       "Sm" -> Seq("Forrest Gump"),
@@ -41,35 +64,33 @@ object PageRankRecommender {
     val graph = Graph(nodeRdd, relationshipRdd)
 
     val nodeIdMap = nodeMap.map(_.swap)
-    val res = graph.personalizedPageRank(nodeMap("Sm"), 0.0001).vertices.flatMap { case (id, rank) =>
-      val name = nodeIdMap(id.toInt)
-      if (name.length > 2) {
-        Some(name, rank)
-      } else {
-        None
-      }
+    val res = graph.staticPersonalizedPageRank(nodeMap("Sm"), 20).vertices.map { case (id, rank) =>
+      (nodeIdMap(id.toInt), rank)
     }.collect
 
-    res.sortBy(_._2).foreach(println)
+    val pRes = res.sortWith(_._2 > _._2).partition(_._1.length == 2)
+    pRes._1.foreach(println)
+    pRes._2.foreach(println)
 
-    pageRank(sc)
-
-    sc.stop()
   }
 
-  def pageRank(sc: SparkContext): Unit = {
+  def ppr2(sc: SparkContext): Unit = {
 
-    val graph = GraphLoader.edgeListFile(sc, "data/followers.txt")
-    val ranks = graph.pageRank(0.0001).vertices
-    val users = sc.textFile("data/users.txt").map { line =>
-      val fields = line.split(",")
-      (fields(0).toLong, fields(1))
-    }
+    val nodeRdd: RDD[(VertexId, Unit)] = sc.parallelize(
+      ((1 to 3) ++ (11 to 14)).map(id => (id.toLong, ()))
+    )
 
-    val ranksByUsername = users.join(ranks).map { case(id, (username, rank)) => (username, rank) }
-    ranksByUsername.collect.sortBy(_._2).foreach(println)
+    val relationshipRdd: RDD[Edge[Unit]] = sc.parallelize(
+      Seq((1, 11), (1, 12), (2, 12), (3, 14)).flatMap { case (user, item) =>
+        Seq(Edge(user, item, ()), Edge(item, user, ()))
+      }
+    )
 
-    ranks.collect.sortBy(_._2).foreach(println)
+    val graph = Graph(nodeRdd, relationshipRdd)
+    val res = graph.personalizedPageRank(2, 0.0001, 0.15).vertices.collect
+    val pRes = res.sortWith(_._2 > _._2).partition(_._1 >= 10)
+    pRes._1.foreach(println)
+    pRes._2.foreach(println)
 
   }
 
