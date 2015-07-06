@@ -1,7 +1,7 @@
 import org.slf4j.LoggerFactory
 import org.apache.spark._
 import org.apache.spark.mllib.linalg.Vectors
-import org.apache.spark.mllib.linalg.distributed.{MatrixEntry, RowMatrix}
+import org.apache.spark.mllib.linalg.distributed._
 
 
 object CosineSimilarity {
@@ -35,7 +35,11 @@ object CosineSimilarity {
     }
 
     val mat = new RowMatrix(rows)
-    val sim = mat.columnSimilarities(0.1).toIndexedRowMatrix
+
+//    val colsim = mat.columnSimilarities(0.1)
+    val colsim = calcSim(mat, sc)
+
+    val sim = colsim.toIndexedRowMatrix
 
     sim.rows.take(10).foreach { row =>
       val items = (0 until row.vector.size).map(i => i -> row.vector(i)).filter(_._2 > 0).sortWith(_._2 > _._2).take(100)
@@ -75,6 +79,33 @@ object CosineSimilarity {
     }
 
     sc.stop()
+  }
+
+  def calcSim(mat: RowMatrix, sc: SparkContext): CoordinateMatrix = {
+
+    val sums = mat.rows.flatMap { v =>
+      v.toSparse.indices.map { i =>
+        i -> math.pow(v(i), 2)
+      }
+    }.reduceByKey(_ + _).mapValues(math.sqrt).collectAsMap
+
+    println("sums size " + sums.size)
+
+    val pairs = mat.rows.flatMap { v =>
+      val indices = v.toSparse.indices
+      indices.flatMap { i =>
+        indices.map { j =>
+          (i, j) -> v(i) * v(j)
+        }
+      }
+    }
+
+    val bcSums = sc.broadcast(sums)
+    val entries = pairs.reduceByKey(_ + _).map { case ((i, j), s) =>
+      MatrixEntry(i, j, s / bcSums.value(i) / bcSums.value(j))
+    }
+
+    new CoordinateMatrix(entries)
   }
 
 }
