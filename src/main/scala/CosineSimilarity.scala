@@ -1,5 +1,6 @@
 import org.slf4j.LoggerFactory
 import org.apache.spark._
+import org.apache.spark.rdd.RDD
 import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.mllib.linalg.distributed._
 
@@ -36,8 +37,32 @@ object CosineSimilarity {
 
     val mat = new RowMatrix(rows)
 
-//    val colsim = mat.columnSimilarities(0.1)
-    val colsim = calcSim(mat, sc)
+    val colsim1 = mat.columnSimilarities()
+    val colsim2 = mat.columnSimilarities(0.1)
+    val colsim3 = calcSim(mat, sc)
+
+    compare(colsim1, colsim2)
+    compare(colsim1, colsim3)
+
+//    testOne(userComms, colsim)
+
+    sc.stop()
+  }
+
+  def compare(mat1: CoordinateMatrix, mat2: CoordinateMatrix): Unit = {
+
+    val mat1Entries = mat1.entries.map { case MatrixEntry(i, j, u) => ((i, j), u) }
+    val mat2Entries = mat2.entries.map { case MatrixEntry(i, j, u) => ((i, j), u) }
+    val MAE = mat1Entries.leftOuterJoin(mat2Entries).values.map {
+      case (u, Some(v)) => math.abs(u - v)
+      case (u, None) => math.abs(u)
+    }.mean()
+
+    println(s"MAE = $MAE")
+
+  }
+
+  def testOne(userComms: RDD[(String, Seq[(Int, Double)])], colsim: CoordinateMatrix): Unit = {
 
     val sim = colsim.toIndexedRowMatrix
 
@@ -78,7 +103,6 @@ object CosineSimilarity {
 
     }
 
-    sc.stop()
   }
 
   def calcSim(mat: RowMatrix, sc: SparkContext): CoordinateMatrix = {
@@ -94,15 +118,16 @@ object CosineSimilarity {
     val pairs = mat.rows.flatMap { v =>
       val indices = v.toSparse.indices
       indices.flatMap { i =>
-        indices.map { j =>
+        indices.filter(_ > i).map { j =>
           (i, j) -> v(i) * v(j)
         }
       }
     }
 
     val bcSums = sc.broadcast(sums)
-    val entries = pairs.reduceByKey(_ + _).map { case ((i, j), s) =>
-      MatrixEntry(i, j, s / bcSums.value(i) / bcSums.value(j))
+    val entries = pairs.reduceByKey(_ + _).flatMap { case ((i, j), s) =>
+      val value = s / bcSums.value(i) / bcSums.value(j)
+      Seq(MatrixEntry(i, j, value), MatrixEntry(j, i, value))
     }
 
     new CoordinateMatrix(entries)
