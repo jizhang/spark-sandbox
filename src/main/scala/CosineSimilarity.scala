@@ -1,3 +1,4 @@
+import scala.util.Random
 import org.slf4j.LoggerFactory
 import org.apache.spark._
 import org.apache.spark.rdd.RDD
@@ -14,7 +15,7 @@ object CosineSimilarity {
     val conf = new SparkConf().setAppName("CosineSimilarity").setMaster("local[2]")
     val sc = new SparkContext(conf)
 
-    // read logs
+    // read logs - logs are pre-grouped by user-item
     val logs = sc.textFile("/Users/jizhang/data/comm.txt").flatMap { line =>
       try {
         val arr = line.split("\\s+")
@@ -22,29 +23,62 @@ object CosineSimilarity {
       } catch {
         case _: Exception => None
       }
-    }.cache()
+    }
 
-    val numColumns = logs.map(_._2).max + 1
+    // generate integer user id
+    val userIds = logs.map(_._1).distinct.zipWithUniqueId
+
+    val ratings = logs.map { case (user, itemId, clicks) =>
+      user -> (itemId, clicks)
+    }.join(userIds).map { case (user, ((itemId, clicks), userId)) =>
+      (userId, itemId, clicks.toDouble)
+    }
+
+    val numColumns = ratings.map(_._2).max + 1
     println(s"numColumns = $numColumns")
 
-    val userComms = logs.map { case (userId, commId, clicks) =>
-      (userId, Seq(commId -> clicks.toDouble))
-    }.reduceByKey(_ ++ _).cache()
+    // split
+    val ratingSplits = ratings.randomSplit(Array.fill(10)(0.1), 913)
+
+    val trainingSet = sc.union(ratingSplits.dropRight(1))
+    val testingSet = ratingSplits.last
+
+    // train
+    val userComms = trainingSet.map { case (userId, commId, clicks) =>
+      (userId, Seq(commId -> clicks))
+    }.reduceByKey(_ ++ _)
 
     val rows = userComms.values.map { commClicks =>
       Vectors.sparse(numColumns, commClicks)
     }
 
     val mat = new RowMatrix(rows)
+    val sim = mat.columnSimilarities(0.1)
 
-    val colsim1 = mat.columnSimilarities()
-    val colsim2 = mat.columnSimilarities(0.1)
-    val colsim3 = calcSim(mat, sc)
+    // recommend
+    val entries = sim.entries.map { case MatrixEntry(i, j, u) =>
+      i.toInt -> (j.toInt, u)
+    }.groupByKey.mapValues { iter =>
+      iter.toSeq.sortWith(_._2 > _._1)//.take(50)
+    }
 
-    compare(colsim1, colsim2)
-    compare(colsim1, colsim3)
+    val testUserId = trainingSet.first._1
 
-//    testOne(userComms, colsim)
+    // TODO normalize, visited item
+
+    trainingSet.map { case (userId, commId, clicks) =>
+      commId -> (userId, clicks)
+    }.filter(_._2._1 == testUserId).join(entries).flatMap { case (commId, ((userId, clicks), comms)) =>
+      comms.map { case (commId, similarity) =>
+        (userId, commId) -> (clicks, similarity)
+      }
+    }.groupByKey.map { case ((userId, commId), comms) =>
+      val score = comms.map(t => t._1 * t._2).sum
+      val total = comms.map(t => t._2).sum
+      userId -> (commId, score / total)
+    }.groupByKey.map { case (userId, comms) =>
+      comms.toSeq.sortWith(_._2 > _._2).take(20)
+    }.take(10).foreach(println)
 
     sc.stop()
   }
