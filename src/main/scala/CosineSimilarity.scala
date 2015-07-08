@@ -64,9 +64,16 @@ object CosineSimilarity {
 
     val testUserId = trainingSet.first._1
 
-    // TODO normalize, visited item
+    // TODO visited item
 
     trainingSet.map { case (userId, commId, clicks) =>
+      userId -> (commId, clicks)
+    }.groupByKey.flatMap { case (userId, comms) =>
+      val l2norm = math.sqrt(comms.map(t => t._2 * t._2).sum)
+      comms.map(t => t._1 -> t._2 / l2norm).map { case (commId, clicks) =>
+        (userId, commId, clicks)
+      }
+    }.map { case (userId, commId, clicks) =>
       commId -> (userId, clicks)
     }.filter(_._2._1 == testUserId).join(entries).flatMap { case (commId, ((userId, clicks), comms)) =>
       comms.map { case (commId, similarity) =>
@@ -78,7 +85,7 @@ object CosineSimilarity {
       userId -> (commId, score / total)
     }.groupByKey.map { case (userId, comms) =>
       comms.toSeq.sortWith(_._2 > _._2).take(20)
-    }.take(10).foreach(println)
+    }.take(100).foreach(println)
 
     sc.stop()
   }
