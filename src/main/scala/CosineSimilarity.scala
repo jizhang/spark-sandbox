@@ -1,6 +1,7 @@
 import scala.util.Random
 import org.slf4j.LoggerFactory
 import org.apache.spark._
+import org.apache.spark.storage.StorageLevel
 import org.apache.spark.rdd.RDD
 import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.mllib.linalg.distributed._
@@ -32,7 +33,7 @@ object CosineSimilarity {
       user -> (itemId, clicks)
     }.join(userIds).map { case (user, ((itemId, clicks), userId)) =>
       (userId, itemId, clicks.toDouble)
-    }
+    }.persist(StorageLevel.DISK_ONLY)
 
     val numColumns = ratings.map(_._2).max + 1
     println(s"numColumns = $numColumns")
@@ -45,47 +46,53 @@ object CosineSimilarity {
 
     // train
     val userComms = trainingSet.map { case (userId, commId, clicks) =>
-      (userId, Seq(commId -> clicks))
-    }.reduceByKey(_ ++ _)
+      (userId, (commId, clicks))
+    }.groupByKey
 
     val rows = userComms.values.map { commClicks =>
-      Vectors.sparse(numColumns, commClicks)
+      Vectors.sparse(numColumns, commClicks.toSeq)
     }
 
     val mat = new RowMatrix(rows)
     val sim = mat.columnSimilarities(0.1)
 
     // recommend
-    val entries = sim.entries.map { case MatrixEntry(i, j, u) =>
+    val simTop = sim.entries.map { case MatrixEntry(i, j, u) =>
       i.toInt -> (j.toInt, u)
-    }.groupByKey.mapValues { iter =>
-      iter.toSeq.sortWith(_._2 > _._1)//.take(50)
+    }.groupByKey.mapValues { comms =>
+      val commsTop = comms.toSeq.sortWith(_._2 > _._1).take(50)
+      normalizeOne(commsTop)
+    }
+
+    val t1 = simTop.flatMap { case (i, items) =>
+      items.map { case (j, u) =>
+        j -> (i, u)
+      }
+    }
+
+    val t2 = userComms.flatMap { case (userId, comms) =>
+      normalizeOne(comms).map { case (commId, clicks) =>
+        commId -> (userId, clicks)
+      }
+    }
+
+    val userRecomm = t1.join(t2).map { case (commId, ((i, u), (userId, clicks))) =>
+      userId -> (commId, i, u, clicks)
+    }.groupByKey.mapValues { comms =>
+
+      val visited = comms.map(_._1).toSet
+      val newItems = comms.filterNot(t => visited(t._2)).map(t => t._2 -> (t._3, t._4))
+
+      newItems.groupBy(_._1).mapValues(_.map(_._2)).map { case (commId, comms) =>
+        val score = comms.map(t => t._1 * t._2).sum
+        val total = comms.map(_._1).sum
+        commId -> score / total
+      }.toSeq.sortWith(_._2 > _._2).take(30)
+
     }
 
     val testUserId = trainingSet.first._1
-
-    // TODO visited item
-
-    trainingSet.map { case (userId, commId, clicks) =>
-      userId -> (commId, clicks)
-    }.groupByKey.flatMap { case (userId, comms) =>
-      val l2norm = math.sqrt(comms.map(t => t._2 * t._2).sum)
-      comms.map(t => t._1 -> t._2 / l2norm).map { case (commId, clicks) =>
-        (userId, commId, clicks)
-      }
-    }.map { case (userId, commId, clicks) =>
-      commId -> (userId, clicks)
-    }.filter(_._2._1 == testUserId).join(entries).flatMap { case (commId, ((userId, clicks), comms)) =>
-      comms.map { case (commId, similarity) =>
-        (userId, commId) -> (clicks, similarity)
-      }
-    }.groupByKey.map { case ((userId, commId), comms) =>
-      val score = comms.map(t => t._1 * t._2).sum
-      val total = comms.map(t => t._2).sum
-      userId -> (commId, score / total)
-    }.groupByKey.map { case (userId, comms) =>
-      comms.toSeq.sortWith(_._2 > _._2).take(20)
-    }.take(100).foreach(println)
+    userRecomm.filter(_._1 == testUserId).foreach(println)
 
     sc.stop()
   }
@@ -100,49 +107,6 @@ object CosineSimilarity {
     }.mean()
 
     println(s"MAE = $MAE")
-
-  }
-
-  def testOne(userComms: RDD[(String, Seq[(Int, Double)])], colsim: CoordinateMatrix): Unit = {
-
-    val sim = colsim.toIndexedRowMatrix
-
-    sim.rows.take(10).foreach { row =>
-      val items = (0 until row.vector.size).map(i => i -> row.vector(i)).filter(_._2 > 0).sortWith(_._2 > _._2).take(100)
-      println(row.index + ": " + items.mkString(", "))
-    }
-
-    userComms.filter(_._1 == "000b63c9ea5a4b4840663f2ea5b59635").take(1).foreach { case (userId, comms) =>
-
-      val l2norm = math.sqrt(comms.map(t => t._2 * t._2).sum)
-      val l2normComms = comms.map(t => t._1 -> t._2 / l2norm)
-
-      println(l2normComms)
-
-      val commIds = l2normComms.map(_._1).toSet
-      val matches = sim.rows.filter(row => commIds.contains(row.index.toInt))
-        .map { row =>
-          val items = (0 until row.vector.size).map(i => i -> row.vector(i))
-            .filter { case (commId, similarity) => similarity > 0 && !commIds.contains(commId) }
-          (row.index, items.toMap)
-        }
-        .collectAsMap()
-
-      println(matches.mapValues(_.take(100)))
-
-      val recommendations = l2normComms.flatMap { case (commId, clicks) =>
-        matches.getOrElse(commId, Map.empty).mapValues(similarity => (similarity, clicks))
-      }.groupBy(_._1).mapValues(_.map(_._2)).mapValues { items =>
-        val score = items.map(item => item._1 * item._2).sum
-        val total = items.map(_._1).sum
-        (score / total, score, total)
-      }.toSeq.sortWith(_._2._1 > _._2._1)
-
-      println(recommendations.size)
-
-      recommendations.take(100).foreach(println)
-
-    }
 
   }
 
@@ -172,6 +136,11 @@ object CosineSimilarity {
     }
 
     new CoordinateMatrix(entries)
+  }
+
+  def normalizeOne(items: Iterable[(Int, Double)]): Iterable[(Int, Double)] = {
+    val l2norm = math.sqrt(items.map(_._2).sum)
+    items.map(t => t._1 -> t._2 / l2norm)
   }
 
 }
