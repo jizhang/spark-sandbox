@@ -13,7 +13,7 @@ object CosineSimilarity {
 
   def main(args: Array[String]): Unit = {
 
-    val conf = new SparkConf().setAppName("CosineSimilarity").setMaster("local[2]")
+    val conf = new SparkConf().setAppName("CosineSimilarity").setMaster("local[4]")
     val sc = new SparkContext(conf)
 
     // read logs - logs are pre-grouped by user-item
@@ -42,7 +42,7 @@ object CosineSimilarity {
     val ratingSplits = ratings.randomSplit(Array.fill(10)(0.1), 913)
 
     val trainingSet = sc.union(ratingSplits.dropRight(1))
-    val testingSet = ratingSplits.last
+    val testingSet = ratingSplits.last.persist(StorageLevel.DISK_ONLY)
 
     // train
     val userComms = trainingSet.map { case (userId, commId, clicks) =>
@@ -70,7 +70,9 @@ object CosineSimilarity {
       }
     }
 
-    val t2 = userComms.flatMap { case (userId, comms) =>
+    val t2 = testingSet.map { case (userId, commId, clicks) =>
+      userId -> (commId, clicks)
+    }.groupByKey.flatMap { case (userId, comms) =>
       normalizeOne(comms).map { case (commId, clicks) =>
         commId -> (userId, clicks)
       }
@@ -91,8 +93,18 @@ object CosineSimilarity {
 
     }
 
-    val testUserId = trainingSet.first._1
-    userRecomm.filter(_._1 == testUserId).foreach(println)
+    // recall
+    val (tp, total) = testingSet.map { case (userId, commId, clicks) =>
+      userId -> (commId, clicks)
+    }.groupByKey.join(userRecomm).values.map { case (comms, recomm) =>
+      val t = comms.map(_._1).toSet
+      val r = recomm.map(_._1).toSet
+      ((t & r).size, t.size)
+    }.reduce { (t1, t2) =>
+      ((t1._1 + t2._1), (t1._2 + t2._2))
+    }
+
+    println("Recall = %.4f%%".format(tp.toDouble / total * 100))
 
     sc.stop()
   }
