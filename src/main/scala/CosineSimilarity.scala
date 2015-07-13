@@ -44,6 +44,17 @@ object CosineSimilarity {
     val trainingSet = sc.union(ratingSplits.dropRight(1))
     val testingSet = ratingSplits.last.persist(StorageLevel.DISK_ONLY)
 
+    // model
+    val userRecomm = cf(trainingSet, testingSet, numColumns)
+//    val userRecomm = als(trainingSet)
+    println("Recall = %.4f%%".format(recall(testingSet, userRecomm) * 100))
+
+    sc.stop()
+  }
+
+  def cf(trainingSet: RDD[(Long, Int, Double)], testingSet: RDD[(Long, Int, Double)],
+      numColumns: Int): RDD[(Long, Seq[(Int, Double)])] = {
+
     // train
     val userComms = trainingSet.map { case (userId, commId, clicks) =>
       (userId, (commId, clicks))
@@ -70,7 +81,7 @@ object CosineSimilarity {
       }
     }
 
-    val t2 = testingSet.map { case (userId, commId, clicks) =>
+    val t2 = trainingSet.map { case (userId, commId, clicks) =>
       userId -> (commId, clicks)
     }.groupByKey.flatMap { case (userId, comms) =>
       normalizeOne(comms).map { case (commId, clicks) =>
@@ -93,10 +104,20 @@ object CosineSimilarity {
 
     }
 
-    // recall
-    val (tp, total) = testingSet.map { case (userId, commId, clicks) =>
+    userRecomm
+  }
+
+  def recall(testingSet: RDD[(Long, Int, Double)], userRecomm: RDD[(Long, Seq[(Int, Double)])]): Double = {
+
+    val userTest = testingSet.map { case (userId, commId, clicks) =>
       userId -> (commId, clicks)
-    }.groupByKey.join(userRecomm).values.map { case (comms, recomm) =>
+    }.groupByKey
+
+    println(userTest.keys.count)
+    println(userRecomm.keys.count)
+    println(userTest.join(userRecomm).keys.count)
+
+    val (tp, total) = userTest.join(userRecomm).values.map { case (comms, recomm) =>
       val t = comms.map(_._1).toSet
       val r = recomm.map(_._1).toSet
       ((t & r).size, t.size)
@@ -104,9 +125,28 @@ object CosineSimilarity {
       ((t1._1 + t2._1), (t1._2 + t2._2))
     }
 
-    println("Recall = %.4f%%".format(tp.toDouble / total * 100))
+    tp.toDouble / total
+  }
 
-    sc.stop()
+  def als(trainingSet: RDD[(Long, Int, Double)]): RDD[(Long, Seq[(Int, Double)])] = {
+
+    import org.apache.spark.mllib.recommendation.{ALS, Rating}
+
+    val ratings = trainingSet.map { case (userId, commId, clicks) =>
+      Rating(userId.toInt, commId, clicks)
+    }
+
+    val rank = 10
+    val numIterations = 20
+    val model = ALS.trainImplicit(ratings, rank, numIterations)
+
+    model.recommendProductsForUsers(30).map { case (userId, ratings) =>
+      val comms = ratings.map { rating =>
+        rating.product -> rating.rating
+      }.toSeq
+      userId.toLong -> comms
+    }
+
   }
 
   def compare(mat1: CoordinateMatrix, mat2: CoordinateMatrix): Unit = {
