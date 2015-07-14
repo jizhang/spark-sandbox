@@ -10,6 +10,9 @@ object SimilarityRecommender extends Recommender {
 
   override def recommend(trainingSet: RDD[Rating], params: Map[String, Any]): RDD[(Int, Seq[Rating])] = {
 
+    val numNeighbours = params.getInt("numNeighbours")
+    val numRecommendations = params.getInt("numRecommendations")
+
     // train
     val userProducts = trainingSet.map { case Rating(user, product, rating) =>
       (user, (product, rating))
@@ -27,7 +30,7 @@ object SimilarityRecommender extends Recommender {
     val simTop = sim.entries.map { case MatrixEntry(i, j, u) =>
       i.toInt -> (j.toInt, u)
     }.groupByKey.mapValues { products =>
-      val productsTop = products.toSeq.sortWith(_._2 > _._1).take(50)
+      val productsTop = products.toSeq.sortWith(_._2 > _._1).take(numNeighbours)
       normalizeOne(productsTop)
     }
 
@@ -56,7 +59,7 @@ object SimilarityRecommender extends Recommender {
         val score = products.map(t => t._1 * t._2).sum
         val total = products.map(_._1).sum
         product -> score / total
-      }.toSeq.sortWith(_._2 > _._2).take(30)
+      }.toSeq.sortWith(_._2 > _._2).take(numRecommendations)
 
       user -> productsTop.map { case (product, rating) =>
         Rating(user, product, rating)
