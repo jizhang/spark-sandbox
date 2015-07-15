@@ -30,8 +30,8 @@ object SimilarityRecommender extends Recommender {
     val simTop = sim.entries.map { case MatrixEntry(i, j, u) =>
       i.toInt -> (j.toInt, u)
     }.groupByKey.mapValues { products =>
-      val productsTop = products.toSeq.sortWith(_._2 > _._1).take(numNeighbours)
-      normalizeOne(productsTop)
+      val productsTop = products.toSeq.sortWith(_._2 > _._2).take(numNeighbours)
+      normalizeRange(productsTop)
     }
 
     val t1 = simTop.flatMap { case (i, products) =>
@@ -43,7 +43,7 @@ object SimilarityRecommender extends Recommender {
     val t2 = trainingSet.map { case Rating(user, product, rating) =>
       user -> (product, rating)
     }.groupByKey.flatMap { case (user, products) =>
-      normalizeOne(products).map { case (product, rating) =>
+      normalizeRange(products).map { case (product, rating) =>
         product -> (user, rating)
       }
     }
@@ -56,9 +56,15 @@ object SimilarityRecommender extends Recommender {
       val newProducts = products.filterNot(t => visited(t._2)).map(t => t._2 -> (t._3, t._4))
 
       val productsTop = newProducts.groupBy(_._1).mapValues(_.map(_._2)).map { case (product, products) =>
-        val score = products.map(t => t._1 * t._2).sum
+
         val total = products.map(_._1).sum
-        product -> score / total
+        if (total == 0) {
+          product -> 0.0
+        } else {
+          val score = products.map(t => t._1 * t._2).sum
+          product -> score / total
+        }
+
       }.toSeq.sortWith(_._2 > _._2).take(numRecommendations)
 
       user -> productsTop.map { case (product, rating) =>
@@ -69,9 +75,19 @@ object SimilarityRecommender extends Recommender {
 
   }
 
-  def normalizeOne(products: Iterable[(Int, Double)]): Iterable[(Int, Double)] = {
-    val l2norm = math.sqrt(products.map(_._2).sum)
-    products.map(t => t._1 -> t._2 / l2norm)
+  def normalizeLp(products: Iterable[(Int, Double)], p: Int): Iterable[(Int, Double)] = {
+    val lpnorm = math.pow(products.map(t => math.pow(t._2, p)).sum, 1.0 / p)
+    products.map(t => t._1 -> t._2 / lpnorm)
+  }
+
+  def normalizeRange(products: Iterable[(Int, Double)]): Iterable[(Int, Double)] = {
+    val min = products.map(_._2).min
+    val max = products.map(_._2).max
+    if (min == max) {
+      products.map(t => t._1 -> 0.5)
+    } else {
+      products.map(t => t._1 -> (t._2 - min) / (max - min))
+    }
   }
 
 }
