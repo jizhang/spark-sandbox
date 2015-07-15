@@ -57,16 +57,19 @@ object MainClass {
       userName -> (itemId, clicks)
     }.join(userIds).map { case (userName, ((itemId, clicks), userId)) =>
       Rating(userId.toInt, itemId, clicks.toDouble)
-    }.persist(StorageLevel.DISK_ONLY)
+    }.cache()
 
-    val numColumns = ratings.map(_.product).max + 1
-    println(s"numColumns = $numColumns")
+    val numRatings = ratings.count
+    val numUsers = ratings.map(_.user).distinct.count
+    val numProducts = ratings.map(_.product).distinct.count
+
+    println(s"Got $numRatings ratings from $numUsers users on $numProducts products.")
 
     // split
     val ratingSplits = ratings.randomSplit(Array.fill(10)(0.1), 913)
 
-    val trainingSet = sc.union(ratingSplits.dropRight(1))
-    val testingSet = ratingSplits.last.persist(StorageLevel.DISK_ONLY)
+    val trainingSet = sc.union(ratingSplits.dropRight(1)).cache()
+    val testingSet = ratingSplits.last.cache()
 
     val commonParams = Map(
       "numNeighbours" -> 50,
@@ -76,6 +79,7 @@ object MainClass {
     // model
     val userRecomm = config.algorithm match {
       case "sim" =>
+        val numColumns = ratings.map(_.product).max + 1
         SimilarityRecommender.recommend(trainingSet, commonParams ++ Map("numColumns" -> numColumns))
 
       case "als" =>
@@ -84,16 +88,20 @@ object MainClass {
       case _ => throw new IllegalArgumentException("Unkown algorithm " + config.algorithm)
     }
 
-    userRecomm.persist(StorageLevel.DISK_ONLY)
+    userRecomm.cache()
 
-    evaluatePrecision(testingSet, userRecomm)
-    evaluateCoverage(trainingSet, userRecomm)
-    evaluatePopularity(trainingSet, userRecomm)
+    val (precision, recall, f1) = evaluatePrecision(testingSet, userRecomm)
+    val coverage = evaluateCoverage(trainingSet, userRecomm)
+    val popularity = evaluatePopularity(trainingSet, userRecomm)
+
+    println("Precision=%.4f%% Recall=%.4f%% F1=%.6f Coverage=%.4f%% Popularity=%.6f".format(
+        precision * 100, recall * 100, f1, coverage * 100, popularity))
 
     sc.stop()
   }
 
-  def evaluatePrecision(testingSet: RDD[Rating], userRecomm: RDD[(Int, Seq[Rating])]): Unit = {
+  def evaluatePrecision(testingSet: RDD[Rating], userRecomm: RDD[(Int, Seq[Rating])]
+      ): (Double, Double, Double) = {
 
     val userTest = testingSet.map { rating =>
       rating.user -> rating
@@ -115,19 +123,16 @@ object MainClass {
     val recall = tp.toDouble / tpFn
     val f1 = 2 * precision * recall / (precision + recall)
 
-    println("Precision = %.4f%%, Recall = %.4f%%, F1 = %.6f".format(precision * 100, recall * 100, f1 * 100))
+    (precision, recall, f1)
   }
 
-  def evaluateCoverage(trainingSet: RDD[Rating], userRecomm: RDD[(Int, Seq[Rating])]): Unit = {
-
+  def evaluateCoverage(trainingSet: RDD[Rating], userRecomm: RDD[(Int, Seq[Rating])]): Double = {
     val total = trainingSet.map(_.product).distinct.count
     val recomm = userRecomm.values.flatMap(_.map(_.product)).distinct.count
-
-    println("Coverage = %.4f%%".format(recomm.toDouble / total * 100))
-
+    recomm.toDouble / total
   }
 
-  def evaluatePopularity(trainingSet: RDD[Rating], userRecomm: RDD[(Int, Seq[Rating])]): Unit = {
+  def evaluatePopularity(trainingSet: RDD[Rating], userRecomm: RDD[(Int, Seq[Rating])]): Double = {
 
     val itemCounts = trainingSet.map(_.product -> 1).reduceByKey(_ + _)
     val itemRecomm = userRecomm.values.flatMap(_.map(_.product -> 1))
@@ -138,7 +143,7 @@ object MainClass {
       (t1._1 + t2._1, t1._2 + t2._2)
     }
 
-    println("Popularity = %.6f".format(ret.toDouble / n))
+    ret.toDouble / n
   }
 
   def compare(mat1: CoordinateMatrix, mat2: CoordinateMatrix): Unit = {

@@ -10,7 +10,11 @@ object AlsRecommender extends Recommender {
 
     val rank = 10
     val numIterations = 20
-    val model = ALS.trainImplicit(trainingSet, rank, numIterations)
+    val model = new ALS()
+      .setRank(rank)
+      .setIterations(numIterations)
+      .setImplicitPrefs(true)
+      .run(trainingSet)
 
     val numRecommendations = params.getInt("numRecommendations")
     model.recommendProductsForUsers(numRecommendations).mapValues(_.toSeq)
