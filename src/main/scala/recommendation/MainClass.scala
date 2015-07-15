@@ -10,17 +10,38 @@ import org.apache.spark.mllib.linalg.distributed._
 import org.apache.spark.mllib.recommendation.Rating
 
 
+case class Config(
+    inputPath: String = "",
+    algorithm: String = "",
+    numRecommendations: Int = 30)
+
 object MainClass {
 
   val logger = LoggerFactory.getLogger(getClass)
 
   def main(args: Array[String]): Unit = {
 
-    val conf = new SparkConf().setAppName("Recommendation").setMaster("local[4]")
+    val parser = new scopt.OptionParser[Config]("recommendation") {
+      head("recommendation", "1.0")
+      opt[String]('i', "input-path") required() action { (x, c) =>
+        c.copy(inputPath = x) } text("input path")
+      opt[String]('a', "algorithm") required() action { (x, c) =>
+        c.copy(algorithm = x) } text("algorithm name")
+      opt[Int]('n', "num-recommendations") action { (x, c) =>
+        c.copy(numRecommendations = x) } text ("number of recommendations")
+      help("help") text ("prints this usage text")
+    }
+
+    val config = parser.parse(args, Config()) match {
+      case Some(config) => println(config); config
+      case None => return
+    }
+
+    val conf = new SparkConf().setAppName("Recommendation").setIfMissing("spark.master", "local[4]")
     val sc = new SparkContext(conf)
 
     // read logs - logs are pre-grouped by user-item
-    val logs = sc.textFile("/Users/jizhang/data/comm.txt").flatMap { line =>
+    val logs = sc.textFile(config.inputPath).flatMap { line =>
       try {
         val arr = line.split("\\s+")
         Some(arr(0), arr(1).toInt, arr(2).toInt)
@@ -47,24 +68,20 @@ object MainClass {
     val trainingSet = sc.union(ratingSplits.dropRight(1))
     val testingSet = ratingSplits.last.persist(StorageLevel.DISK_ONLY)
 
-    val numRecommendations = if (args.length > 1) {
-      args(1).toInt
-    } else 30
-
     val commonParams = Map(
       "numNeighbours" -> 50,
-      "numRecommendations" -> numRecommendations
+      "numRecommendations" -> config.numRecommendations
     )
 
     // model
-    val userRecomm = args(0) match {
+    val userRecomm = config.algorithm match {
       case "sim" =>
         SimilarityRecommender.recommend(trainingSet, commonParams ++ Map("numColumns" -> numColumns))
 
       case "als" =>
         AlsRecommender.recommend(trainingSet, commonParams)
 
-      case _ => throw new IllegalArgumentException
+      case _ => throw new IllegalArgumentException("Unkown algorithm " + config.algorithm)
     }
 
     userRecomm.persist(StorageLevel.DISK_ONLY)

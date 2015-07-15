@@ -10,6 +10,7 @@ libraryDependencies ++= {
   val sparkVersion = "1.4.0"
   Seq(
     "org.scalatest" %% "scalatest" % "2.2.1" % "test",
+    "com.github.scopt" %% "scopt" % "3.3.0",
     "org.apache.spark" %% "spark-core" % sparkVersion % "provided",
     "org.apache.spark" %% "spark-mllib" % sparkVersion % "provided",
     "org.apache.spark" %% "spark-graphx" % sparkVersion % "provided",
