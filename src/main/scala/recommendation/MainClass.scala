@@ -13,6 +13,7 @@ import org.apache.spark.mllib.recommendation.Rating
 case class Config(
     inputPath: String = "",
     algorithm: String = "",
+    similarityMethod: String = "",
     numRecommendations: Int = 30)
 
 object MainClass {
@@ -27,6 +28,8 @@ object MainClass {
         c.copy(inputPath = x) } text("input path")
       opt[String]('a', "algorithm") required() action { (x, c) =>
         c.copy(algorithm = x) } text("algorithm name")
+      opt[String]('s', "similarity-method") action { (x, c) =>
+        c.copy(similarityMethod = x) } text("similarity method")
       opt[Int]('n', "num-recommendations") action { (x, c) =>
         c.copy(numRecommendations = x) } text ("number of recommendations")
       help("help") text ("prints this usage text")
@@ -80,7 +83,11 @@ object MainClass {
     val userRecomm = config.algorithm match {
       case "sim" =>
         val numColumns = ratings.map(_.product).max + 1
-        SimilarityRecommender.recommend(trainingSet, commonParams ++ Map("numColumns" -> numColumns))
+        val params = commonParams ++ Map(
+          "numColumns" -> numColumns,
+          "similarityMethod" -> config.similarityMethod
+        )
+        SimilarityRecommender.recommend(trainingSet, params)
 
       case "als" =>
         AlsRecommender.recommend(trainingSet, commonParams)
@@ -94,7 +101,7 @@ object MainClass {
     val coverage = evaluateCoverage(trainingSet, userRecomm)
     val popularity = evaluatePopularity(trainingSet, userRecomm)
 
-    println("Precision=%.4f%% Recall=%.4f%% F1=%.6f Coverage=%.4f%% Popularity=%.6f".format(
+    println("Precision=%.2f%% Recall=%.2f%% F1=%.4f Coverage=%.2f%% Popularity=%.4f".format(
         precision * 100, recall * 100, f1, coverage * 100, popularity))
 
     sc.stop()
@@ -157,34 +164,6 @@ object MainClass {
 
     println(s"MAE = $MAE")
 
-  }
-
-  def calcSim(mat: RowMatrix, sc: SparkContext): CoordinateMatrix = {
-
-    val sums = mat.rows.flatMap { v =>
-      v.toSparse.indices.map { i =>
-        i -> math.pow(v(i), 2)
-      }
-    }.reduceByKey(_ + _).mapValues(math.sqrt).collectAsMap
-
-    println("sums size " + sums.size)
-
-    val pairs = mat.rows.flatMap { v =>
-      val indices = v.toSparse.indices
-      indices.flatMap { i =>
-        indices.filter(_ > i).map { j =>
-          (i, j) -> v(i) * v(j)
-        }
-      }
-    }
-
-    val bcSums = sc.broadcast(sums)
-    val entries = pairs.reduceByKey(_ + _).flatMap { case ((i, j), s) =>
-      val value = s / bcSums.value(i) / bcSums.value(j)
-      Seq(MatrixEntry(i, j, value), MatrixEntry(j, i, value))
-    }
-
-    new CoordinateMatrix(entries)
   }
 
 }
