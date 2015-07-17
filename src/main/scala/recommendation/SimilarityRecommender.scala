@@ -1,5 +1,6 @@
 package recommendation
 
+import org.slf4j.LoggerFactory
 import org.apache.spark.rdd.RDD
 import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.mllib.linalg.distributed.{RowMatrix, MatrixEntry, CoordinateMatrix}
@@ -7,6 +8,8 @@ import org.apache.spark.mllib.recommendation.Rating
 
 
 object SimilarityRecommender extends Recommender {
+
+  val logger = LoggerFactory.getLogger(getClass)
 
   override def recommend(trainingSet: RDD[Rating], params: Map[String, Any]): RDD[(Int, Seq[Rating])] = {
 
@@ -30,6 +33,7 @@ object SimilarityRecommender extends Recommender {
       case "spark-appr" => mat.columnSimilarities(0.1)
       case "cosine" => cosineSimilarity(mat)
       case "cosine-mod" => modifiedCosineSimilarity(mat)
+      case "llr" => llr(mat)
       case _ => throw new IllegalArgumentException("unkown similarity method")
     }
 
@@ -39,7 +43,9 @@ object SimilarityRecommender extends Recommender {
     }.groupByKey.mapValues { products =>
       val productsTop = products.toSeq.sortWith(_._2 > _._2).take(numNeighbours)
       normalizeRange(productsTop)
-    }
+    }.cache
+
+    logger.info("simTop.rows = " + simTop.count)
 
     val t1 = simTop.flatMap { case (i, products) =>
       products.map { case (j, u) =>
@@ -112,9 +118,9 @@ object SimilarityRecommender extends Recommender {
           (i, j) -> v(i) * v(j)
         }
       }
-    }
+    }.reduceByKey(_ + _)
 
-    val entries = pairs.reduceByKey(_ + _).map { case ((i, j), v) =>
+    val entries = pairs.map { case ((i, j), v) =>
       i -> (j, v)
     }.join(sums).map { case (i, ((j, v), si)) =>
       j -> (i, v, si)
@@ -132,6 +138,65 @@ object SimilarityRecommender extends Recommender {
 
   def modifiedCosineSimilarity(mat: RowMatrix): CoordinateMatrix = {
     cosineSimilarityInternal(mat, (v, si, sj) => v / math.pow(si, 0.6) / math.pow(sj, 0.4))
+  }
+
+  def llr(mat: RowMatrix): CoordinateMatrix = {
+
+    mat.rows.cache()
+    val numRows = mat.numRows
+
+    val pairs = mat.rows.flatMap { v =>
+      val indices = v.toSparse.indices
+      indices.flatMap { i =>
+        indices.filter(_ > i).map { j =>
+          (i, j) -> 1
+        }
+      }
+    }.reduceByKey(_ + _)
+
+    val items = mat.rows.flatMap { v =>
+      val indices = v.toSparse.indices
+      indices.map { i =>
+        i -> 1
+      }
+    }.reduceByKey(_ + _).cache()
+
+    val entries = pairs.map { case ((i, j), v) =>
+      i -> (j, v)
+    }.join(items).map { case (i, ((j, v), si)) =>
+      j -> (i, v, si)
+    }.join(items).flatMap { case (j, ((i, v, si), sj)) =>
+      val k11 = v
+      val k12 = sj - v
+      val k21 = si - v
+      val k22 = numRows - si - sj + v
+      val llr = logLikelihoodRatio(k11, k12, k21, k22)
+      Seq(MatrixEntry(i, j, llr), MatrixEntry(j, i, llr))
+    }
+
+    new CoordinateMatrix(entries)
+  }
+
+  def logLikelihoodRatio(k11: Long, k12: Long, k21: Long, k22: Long): Double = {
+    val rowEntropy = entropy(k11 + k12, k21 + k22)
+    val columnEntropy = entropy(k11 + k21, k12 + k22)
+    val matrixEntropy = entropy(k11, k12, k21, k22)
+    if (rowEntropy + columnEntropy < matrixEntropy) {
+      0.0
+    } else {
+      2.0 * (rowEntropy + columnEntropy - matrixEntropy)
+    }
+  }
+
+  def entropy(elements: Long*): Double = {
+    val result = elements.map(xLogX).sum
+    val sum = elements.sum
+    xLogX(sum) - result
+    xLogX(sum) - result
+  }
+
+  def xLogX(x: Long): Double = {
+    if (x == 0) 0.0 else x * math.log(x)
   }
 
 }

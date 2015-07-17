@@ -66,7 +66,7 @@ object MainClass {
     val numUsers = ratings.map(_.user).distinct.count
     val numProducts = ratings.map(_.product).distinct.count
 
-    println(s"Got $numRatings ratings from $numUsers users on $numProducts products.")
+    logger.info(s"Got $numRatings ratings from $numUsers users on $numProducts products.")
 
     // split
     val ratingSplits = ratings.randomSplit(Array.fill(10)(0.1), 913)
@@ -101,7 +101,7 @@ object MainClass {
     val coverage = evaluateCoverage(trainingSet, userRecomm)
     val popularity = evaluatePopularity(trainingSet, userRecomm)
 
-    println("Precision=%.2f%% Recall=%.2f%% F1=%.4f Coverage=%.2f%% Popularity=%.4f".format(
+    logger.info("Precision=%.2f%% Recall=%.2f%% F1=%.4f Coverage=%.2f%% Popularity=%.4f".format(
         precision * 100, recall * 100, f1, coverage * 100, popularity))
 
     sc.stop()
