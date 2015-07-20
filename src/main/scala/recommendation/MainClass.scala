@@ -14,6 +14,7 @@ case class Config(
     inputPath: String = "",
     algorithm: String = "",
     similarityMethod: String = "",
+    recommendMethod: String = "",
     numRecommendations: Int = 30)
 
 object MainClass {
@@ -30,13 +31,15 @@ object MainClass {
         c.copy(algorithm = x) } text("algorithm name")
       opt[String]('s', "similarity-method") action { (x, c) =>
         c.copy(similarityMethod = x) } text("similarity method")
+      opt[String]('r', "recommend-method") action { (x, c) =>
+        c.copy(recommendMethod = x) } text("recommend method")
       opt[Int]('n', "num-recommendations") action { (x, c) =>
         c.copy(numRecommendations = x) } text ("number of recommendations")
       help("help") text ("prints this usage text")
     }
 
     val config = parser.parse(args, Config()) match {
-      case Some(config) => println(config); config
+      case Some(config) => logger.info("Parameters: " + config); config
       case None => return
     }
 
@@ -85,7 +88,8 @@ object MainClass {
         val numColumns = ratings.map(_.product).max + 1
         val params = commonParams ++ Map(
           "numColumns" -> numColumns,
-          "similarityMethod" -> config.similarityMethod
+          "similarityMethod" -> config.similarityMethod,
+          "recommendMethod" -> config.recommendMethod
         )
         SimilarityRecommender.recommend(trainingSet, params)
 

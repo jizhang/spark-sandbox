@@ -1,5 +1,6 @@
 package recommendation
 
+import scala.collection.mutable
 import org.slf4j.LoggerFactory
 import org.apache.spark.rdd.RDD
 import org.apache.spark.mllib.linalg.Vectors
@@ -16,6 +17,7 @@ object SimilarityRecommender extends Recommender {
     val numNeighbours = params.getInt("numNeighbours")
     val numRecommendations = params.getInt("numRecommendations")
     val similarityMethod = params.getString("similarityMethod")
+    val recommendMethod = params.getString("recommendMethod")
 
     // train
     val userProducts = trainingSet.map { case Rating(user, product, rating) =>
@@ -34,7 +36,7 @@ object SimilarityRecommender extends Recommender {
       case "cosine" => cosineSimilarity(mat)
       case "cosine-mod" => modifiedCosineSimilarity(mat)
       case "llr" => llr(mat)
-      case _ => throw new IllegalArgumentException("unkown similarity method")
+      case _ => throw new IllegalArgumentException("unknown similarity method")
     }
 
     // recommend
@@ -43,47 +45,67 @@ object SimilarityRecommender extends Recommender {
     }.groupByKey.mapValues { products =>
       val productsTop = products.toSeq.sortWith(_._2 > _._2).take(numNeighbours)
       normalizeRange(productsTop)
-    }.cache
-
-    logger.info("simTop.rows = " + simTop.count)
-
-    val t1 = simTop.flatMap { case (i, products) =>
-      products.map { case (j, u) =>
-        j -> (i, u)
-      }
     }
 
-    val t2 = trainingSet.map { case Rating(user, product, rating) =>
+    recommendMethod match {
+      case "score" => recommendByScore(simTop, trainingSet, numRecommendations)
+      case "weighted-sum" => recommendByWeightedSum(simTop, trainingSet, numRecommendations)
+      case _ => throw new IllegalArgumentException("unknown recommend method")
+    }
+
+  }
+
+  def recommendByWeightedSum(simTop: RDD[(Int, Iterable[(Int, Double)])], trainingSet: RDD[Rating],
+      numRecommendations: Int): RDD[(Int, Seq[Rating])] = {
+
+    trainingSet.map { case Rating(user, product, rating) =>
       user -> (product, rating)
     }.groupByKey.flatMap { case (user, products) =>
       normalizeRange(products).map { case (product, rating) =>
         product -> (user, rating)
       }
-    }
-
-    t1.join(t2).map { case (product, ((i, u), (user, rating))) =>
-      user -> (product, i, u, rating)
+    }.join(simTop).flatMap { case (product, ((user, rating), products)) =>
+      products.map { case (j, u) =>
+        user -> (product, j, u, rating)
+      }
     }.groupByKey.map { case (user, products) =>
 
       val visited = products.map(_._1).toSet
       val newProducts = products.filterNot(t => visited(t._2)).map(t => t._2 -> (t._3, t._4))
 
-      val productsTop = newProducts.groupBy(_._1).mapValues(_.map(_._2)).map { case (product, products) =>
+      val topProducts = newProducts.groupBy(_._1).mapValues(_.map(_._2)).map { case (product, products) =>
 
         val total = products.map(_._1).sum
-        if (total == 0) {
-          product -> 0.0
-        } else {
+        val rating = if (total != 0) {
           val score = products.map(t => t._1 * t._2).sum
-          product -> score / total
-        }
+          score / total
+        } else 0.0
 
-      }.toSeq.sortWith(_._2 > _._2).take(numRecommendations)
+        Rating(user, product, rating)
 
-      user -> productsTop.map { case (product, rating) =>
+      }.toSeq.sortWith(_.rating > _.rating).take(numRecommendations)
+
+      user -> topProducts
+    }
+
+  }
+
+  def recommendByScore(simTop: RDD[(Int, Iterable[(Int, Double)])], trainingSet: RDD[Rating],
+      numRecommendations: Int): RDD[(Int, Seq[Rating])] = {
+
+    trainingSet.map { case Rating(user, product, rating) =>
+      product -> user
+    }.join(simTop).flatMap { case (product, (user, products)) =>
+      products.map { case (j, u) =>
+        user -> (product, j, u)
+      }
+    }.groupByKey.map { case (user, products) =>
+      val visited = products.map(_._1).toSet
+      val newProducts = products.filterNot(t => visited(t._2)).map { case (_, product, rating) =>
         Rating(user, product, rating)
       }
-
+      val topProducts = newProducts.toSeq.sortWith(_.rating > _.rating).take(numRecommendations)
+      user -> topProducts
     }
 
   }
@@ -191,7 +213,6 @@ object SimilarityRecommender extends Recommender {
   def entropy(elements: Long*): Double = {
     val result = elements.map(xLogX).sum
     val sum = elements.sum
-    xLogX(sum) - result
     xLogX(sum) - result
   }
 
