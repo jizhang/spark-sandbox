@@ -1,10 +1,13 @@
 package recommendation
 
+import org.slf4j.LoggerFactory
 import org.apache.spark.rdd.RDD
 import org.apache.spark.mllib.recommendation.{ALS, Rating}
 
 
 object AlsRecommender extends Recommender {
+
+  val logger = LoggerFactory.getLogger(getClass)
 
   override def recommend(trainingSet: RDD[Rating], params: Map[String, Any]): RDD[(Int, Seq[Rating])] = {
 

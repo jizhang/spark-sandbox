@@ -7,7 +7,7 @@ version := "0.1.0"
 scalaVersion := "2.10.5"
 
 libraryDependencies ++= {
-  val sparkVersion = "1.4.0"
+  val sparkVersion = "1.4.1"
   Seq(
     "org.scalatest" %% "scalatest" % "2.2.1" % "test",
     "com.github.scopt" %% "scopt" % "3.3.0",
@@ -21,9 +21,7 @@ libraryDependencies ++= {
       exclude("com.sun.jdmk", "jmxtools").
       exclude("net.sf.jopt-simple", "jopt-simple").
       exclude("org.slf4j", "slf4j-simple").
-      exclude("org.apache.zookeeper", "zookeeper"),
-    "org.apache.hbase" % "hbase-common" % "0.98.1-cdh5.1.0" % "provided",
-    "org.apache.hbase" % "hbase-client" % "0.98.1-cdh5.1.0" % "provided"
+      exclude("org.apache.zookeeper", "zookeeper")
   )
 }
 
