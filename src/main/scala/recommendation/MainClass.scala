@@ -94,7 +94,10 @@ object MainClass {
         SimilarityRecommender.recommend(trainingSet, params)
 
       case "als" =>
-        AlsRecommender.recommend(trainingSet, commonParams)
+        val params = commonParams ++ Map(
+          "recommendMethod" -> config.recommendMethod
+        )
+        AlsRecommender.recommend(trainingSet, params)
 
       case _ => throw new IllegalArgumentException("Unkown algorithm " + config.algorithm)
     }

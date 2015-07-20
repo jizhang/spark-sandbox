@@ -11,6 +11,9 @@ object AlsRecommender extends Recommender {
 
   override def recommend(trainingSet: RDD[Rating], params: Map[String, Any]): RDD[(Int, Seq[Rating])] = {
 
+    val numRecommendations = params.getInt("numRecommendations")
+    val recommendMethod = params.getString("recommendMethod")
+
     val rank = 10
     val numIterations = 20
     val model = new ALS()
@@ -19,8 +22,19 @@ object AlsRecommender extends Recommender {
       .setImplicitPrefs(true)
       .run(trainingSet)
 
-    val numRecommendations = params.getInt("numRecommendations")
-    model.recommendProductsForUsers(numRecommendations).mapValues(_.toSeq)
+    recommendMethod match {
+      case "user-product" => model.recommendProductsForUsers(numRecommendations).mapValues(_.toSeq)
+
+      case "product-user" =>
+        model.recommendUsersForProducts(numRecommendations * 10).values.flatMap { products =>
+          products.map(r => r.user -> r)
+        }.groupByKey.mapValues { products =>
+          products.toSeq.sortWith(_.rating > _.rating).take(numRecommendations)
+        }
+
+      case _ => throw new IllegalArgumentException("unknown recommend method")
+    }
+
   }
 
 }
