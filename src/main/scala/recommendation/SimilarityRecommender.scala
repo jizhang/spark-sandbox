@@ -4,7 +4,7 @@ import scala.collection.mutable
 import org.slf4j.LoggerFactory
 import org.apache.spark.rdd.RDD
 import org.apache.spark.mllib.linalg.Vectors
-import org.apache.spark.mllib.linalg.distributed.{RowMatrix, MatrixEntry, CoordinateMatrix}
+import org.apache.spark.mllib.linalg.distributed._
 import org.apache.spark.mllib.recommendation.Rating
 
 
@@ -20,22 +20,21 @@ object SimilarityRecommender extends Recommender {
     val recommendMethod = params.getString("recommendMethod")
 
     // train
-    val userProducts = trainingSet.map { case Rating(user, product, rating) =>
-      (user, (product, rating))
-    }.groupByKey
-
-    val numColumns = params.getInt("numColumns")
-    val rows = userProducts.values.map { productRatings =>
-      Vectors.sparse(numColumns, productRatings.toSeq)
+    val entries = trainingSet.map { case Rating(user, product, rating) =>
+      MatrixEntry(user, product, rating)
     }
 
-    val mat = new RowMatrix(rows)
+    val coorMat = new CoordinateMatrix(entries)
+    val mat = coorMat.toRowMatrix
+
     val sim = similarityMethod match {
       case "spark" => mat.columnSimilarities()
       case "spark-appr" => mat.columnSimilarities(0.1)
       case "cosine" => cosineSimilarity(mat)
       case "cosine-mod" => modifiedCosineSimilarity(mat)
       case "llr" => llr(mat)
+      case "jaccard" => jaccard(mat)
+      case "euclidean" => euclidean(coorMat)
       case _ => throw new IllegalArgumentException("unknown similarity method")
     }
 
@@ -192,8 +191,8 @@ object SimilarityRecommender extends Recommender {
       val k12 = sj - v
       val k21 = si - v
       val k22 = numRows - si - sj + v
-      val llr = logLikelihoodRatio(k11, k12, k21, k22)
-      Seq(MatrixEntry(i, j, llr), MatrixEntry(j, i, llr))
+      val value = logLikelihoodRatio(k11, k12, k21, k22)
+      Seq(MatrixEntry(i, j, value), MatrixEntry(j, i, value))
     }
 
     new CoordinateMatrix(entries)
@@ -218,6 +217,63 @@ object SimilarityRecommender extends Recommender {
 
   def xLogX(x: Long): Double = {
     if (x == 0) 0.0 else x * math.log(x)
+  }
+
+  def jaccard(mat: RowMatrix): CoordinateMatrix = {
+
+    mat.rows.cache()
+
+    val pairs = mat.rows.flatMap { v =>
+      val indices = v.toSparse.indices
+      indices.flatMap { i =>
+        indices.filter(_ > i).map { j =>
+          (i, j) -> 1
+        }
+      }
+    }.reduceByKey(_ + _)
+
+    val items = mat.rows.flatMap { v =>
+      val indices = v.toSparse.indices
+      indices.map { i =>
+        i -> 1
+      }
+    }.reduceByKey(_ + _).cache()
+
+    val entries = pairs.map { case ((i, j), v) =>
+      i -> (j, v)
+    }.join(items).map { case (i, ((j, v), si)) =>
+      j -> (i, v, si)
+    }.join(items).flatMap { case (j, ((i, v, si), sj)) =>
+      val value = v.toDouble / (si + sj - v)
+      Seq(MatrixEntry(i, j, value), MatrixEntry(j, i, value))
+    }
+
+    new CoordinateMatrix(entries)
+  }
+
+  def normalize(values: Iterable[(Int, Double)]): Iterable[(Int, Double)] = {
+    val count = values.size
+    val mean = values.map(_._2).sum / count
+    val sd = values.map(_._2).map(v => math.pow(v - mean, 2)).sum / count
+    val std = math.sqrt(sd)
+    values.map(t => t._1 -> (t._2 - mean) / std)
+  }
+
+  def euclidean(mat: CoordinateMatrix): CoordinateMatrix = {
+
+    // transpose
+    // normalize
+    // cartesian
+    // calc
+
+    mat.transpose.toIndexedRowMatrix.rows.map { row =>
+      val values = row.vector.toSparse.indices.map { i =>
+        i -> row.vector(i)
+      }
+      Vectors.sparse(row.vector.size, normalize(values).toSeq)
+    }
+
+    null
   }
 
 }

@@ -85,9 +85,7 @@ object MainClass {
     // model
     val userRecomm = config.algorithm match {
       case "sim" =>
-        val numColumns = ratings.map(_.product).max + 1
         val params = commonParams ++ Map(
-          "numColumns" -> numColumns,
           "similarityMethod" -> config.similarityMethod,
           "recommendMethod" -> config.recommendMethod
         )
