@@ -2,6 +2,7 @@ package recommendation
 
 import scala.util.Random
 import org.slf4j.LoggerFactory
+import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.spark._
 import org.apache.spark.storage.StorageLevel
 import org.apache.spark.rdd.RDD
@@ -15,7 +16,8 @@ case class Config(
     algorithm: String = "",
     similarityMethod: String = "",
     recommendMethod: String = "",
-    numRecommendations: Int = 30)
+    numRecommendations: Int = 30,
+    outputPath: String = "")
 
 object MainClass {
 
@@ -34,8 +36,10 @@ object MainClass {
       opt[String]('r', "recommend-method") action { (x, c) =>
         c.copy(recommendMethod = x) } text("recommend method")
       opt[Int]('n', "num-recommendations") action { (x, c) =>
-        c.copy(numRecommendations = x) } text ("number of recommendations")
-      help("help") text ("prints this usage text")
+        c.copy(numRecommendations = x) } text("number of recommendations")
+      opt[String]('o', "output-path") action { (x, c) =>
+        c.copy(outputPath = x) } text("output path")
+      help("help") text("prints this usage text")
     }
 
     val config = parser.parse(args, Config()) match {
@@ -45,6 +49,15 @@ object MainClass {
 
     val conf = new SparkConf().setAppName("Recommendation").setIfMissing("spark.master", "local[4]")
     val sc = new SparkContext(conf)
+
+    if (config.outputPath.nonEmpty) {
+      logger.info("Delete output path " + config.outputPath)
+      try {
+        FileSystem.get(sc.hadoopConfiguration).delete(new Path(config.outputPath), true)
+      } catch {
+        case _: Exception =>
+      }
+    }
 
     // read logs - logs are pre-grouped by user-item
     val logs = sc.textFile(config.inputPath).flatMap { line =>
@@ -79,7 +92,8 @@ object MainClass {
 
     val commonParams = Map(
       "numNeighbours" -> 50,
-      "numRecommendations" -> config.numRecommendations
+      "numRecommendations" -> config.numRecommendations,
+      "outputPath" -> config.outputPath
     )
 
     // model
@@ -101,6 +115,16 @@ object MainClass {
     }
 
     userRecomm.cache()
+
+    if (config.outputPath.nonEmpty) {
+      val userRecommPath = new Path(config.outputPath, "user_recommendations")
+      logger.info("Writing user recommendations into " + userRecommPath.toString)
+      userRecomm.flatMap { case (user, products) =>
+        products.map { case Rating(user, product, rating) =>
+          Seq[Any](user, product, rating).mkString("\t")
+        }
+      }.saveAsTextFile(userRecommPath.toString)
+    }
 
     val (precision, recall, f1) = evaluatePrecision(testingSet, userRecomm)
     val coverage = evaluateCoverage(trainingSet, userRecomm)

@@ -2,6 +2,7 @@ package recommendation
 
 import scala.collection.mutable
 import org.slf4j.LoggerFactory
+import org.apache.hadoop.fs.Path
 import org.apache.spark.rdd.RDD
 import org.apache.spark.mllib.linalg.Vectors
 import org.apache.spark.mllib.linalg.distributed._
@@ -18,6 +19,7 @@ object SimilarityRecommender extends Recommender {
     val numRecommendations = params.getInt("numRecommendations")
     val similarityMethod = params.getString("similarityMethod")
     val recommendMethod = params.getString("recommendMethod")
+    val outputPath = params.getString("outputPath")
 
     // train
     val entries = trainingSet.map { case Rating(user, product, rating) =>
@@ -44,6 +46,16 @@ object SimilarityRecommender extends Recommender {
     }.groupByKey.mapValues { products =>
       val productsTop = products.toSeq.sortWith(_._2 > _._2).take(numNeighbours)
       normalizeRange(productsTop)
+    }.cache()
+
+    if (outputPath.nonEmpty) {
+      val simTopPath = new Path(outputPath, "item_similarities")
+      logger.info("Writing item similarities into " + simTopPath.toString)
+      simTop.flatMap { case (i, products) =>
+        products.map { case (j, u) =>
+          Seq[Any](i, j, u).mkString("\t")
+        }
+      }.saveAsTextFile(simTopPath.toString)
     }
 
     recommendMethod match {
@@ -51,7 +63,6 @@ object SimilarityRecommender extends Recommender {
       case "weighted-sum" => recommendByWeightedSum(simTop, trainingSet, numRecommendations)
       case _ => throw new IllegalArgumentException("unknown recommend method")
     }
-
   }
 
   def recommendByWeightedSum(simTop: RDD[(Int, Iterable[(Int, Double)])], trainingSet: RDD[Rating],
