@@ -261,19 +261,31 @@ object SimilarityRecommender extends Recommender {
 
   def euclidean(mat: CoordinateMatrix): CoordinateMatrix = {
 
-    // transpose
-    // normalize
-    // cartesian
-    // calc
-
-    mat.transpose.toIndexedRowMatrix.rows.map { row =>
-      val values = row.vector.toSparse.indices.map { i =>
-        i -> row.vector(i)
+    val normEntries = mat.toIndexedRowMatrix.rows.flatMap { row =>
+      val values = row.vector.toSparse.indices.map { j =>
+        j -> row.vector(j)
       }
-      Vectors.sparse(row.vector.size, normalize(values).toSeq)
+      normalize(values).filterNot(_._2.isNaN).map { case (j, value) =>
+        MatrixEntry(row.index, j, value)
+      }
+    }
+    val normMat = new CoordinateMatrix(normEntries)
+
+    val pairs = normMat.toRowMatrix.rows.flatMap { v =>
+      val indices = v.toSparse.indices
+      indices.flatMap { i =>
+        indices.filter(_ > i).map { j =>
+          (i, j) -> math.pow(v(i) - v(j), 2)
+        }
+      }
+    }.reduceByKey(_ + _)
+
+    val entries = pairs.flatMap { case ((i, j), v) =>
+      val value = math.sqrt(v)
+      Seq(MatrixEntry(i, j, value), MatrixEntry(j, i, value))
     }
 
-    null
+    new CoordinateMatrix(entries)
   }
 
 }
