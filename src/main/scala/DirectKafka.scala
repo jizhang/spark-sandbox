@@ -14,8 +14,18 @@ object DirectKafka {
     val conf = new SparkConf().setAppName("DirectKafka").setIfMissing("spark.master", "local[2]")
     val ssc = new StreamingContext(conf, Seconds(3))
 
+    var offsetRanges = Array.empty[OffsetRange]
     val messages = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](ssc, kafkaParams, topicSet)
-    messages.map(_._2).flatMap(_.split(" ")).map(_ -> 1).reduceByKey(_ + _).print
+      .transform { rdd =>
+        offsetRanges = rdd.asInstanceOf[HasOffsetRanges].offsetRanges
+        rdd
+      }
+
+    messages.flatMap(_._2.split(" ")).map(_ -> 1).reduceByKey(_ + _).foreachRDD { (rdd, time) =>
+      println("Time: " + time)
+      offsetRanges.foreach(println)
+      rdd.foreach(println)
+    }
 
     ssc.start()
     ssc.awaitTermination()
