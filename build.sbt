@@ -4,7 +4,7 @@ organization := "com.shzhangji"
 
 version := "0.1.0"
 
-scalaVersion := "2.11.8"
+scalaVersion := "2.11.11"
 
 libraryDependencies ++= {
   val sparkVersion = "2.2.0"
@@ -15,7 +15,9 @@ libraryDependencies ++= {
     "org.apache.spark" %% "spark-mllib" % sparkVersion % "provided",
     "org.apache.spark" %% "spark-graphx" % sparkVersion % "provided",
     "org.apache.spark" %% "spark-streaming" % sparkVersion % "provided",
-    "org.apache.spark" %% "spark-streaming-kafka-0-10" % sparkVersion
+    "org.apache.spark" %% "spark-streaming-kafka-0-10" % sparkVersion,
+    "org.scalikejdbc" %% "scalikejdbc" % "3.0.1",
+    "mysql" % "mysql-connector-java" % "5.1.43"
   )
 }
 
