@@ -4,10 +4,10 @@ organization := "com.shzhangji"
 
 version := "0.1.0"
 
-scalaVersion := "2.11.11"
+scalaVersion := "2.11.12"
 
 libraryDependencies ++= {
-  val sparkVersion = "2.2.0"
+  val sparkVersion = "2.3.2"
   Seq(
     "org.scalatest" %% "scalatest" % "2.2.1" % "test",
     "com.github.scopt" %% "scopt" % "3.3.0",
