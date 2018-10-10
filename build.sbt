@@ -15,7 +15,8 @@ libraryDependencies ++= {
     "org.apache.spark" %% "spark-mllib" % sparkVersion % "provided",
     "org.apache.spark" %% "spark-graphx" % sparkVersion % "provided",
     "org.apache.spark" %% "spark-streaming" % sparkVersion % "provided",
-    "org.apache.spark" %% "spark-streaming-kafka-0-10" % sparkVersion,
+    "org.apache.spark" %% "spark-streaming-kafka-0-10" % sparkVersion
+      exclude("net.jpountz.lz4", "lz4"),
     "org.scalikejdbc" %% "scalikejdbc" % "3.0.1",
     "mysql" % "mysql-connector-java" % "5.1.43"
   )

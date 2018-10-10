@@ -8,5 +8,7 @@
 .buildpath
 .settings
 
+.idea/
+
 .cache
 .cache-*
