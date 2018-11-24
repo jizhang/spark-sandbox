@@ -26,7 +26,7 @@ class SimpleScanSource extends RelationProvider {
   }
 }
 
-object ExampleV1 {
+object SimpleExampleV1 {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
       .builder()
