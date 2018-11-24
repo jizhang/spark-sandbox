@@ -19,11 +19,8 @@ case class JdbcRelationV1(
   override def sqlContext: SQLContext = sparkSession.sqlContext
 
   override def schema: StructType = StructType(Seq(
-    StructField("id", IntegerType),
     StructField("emp_name", StringType),
-    StructField("dep_name", StringType),
-    StructField("salary", DecimalType(7, 2)),
-    StructField("age", DecimalType(3, 0))
+    StructField("dep_name", StringType)
   ))
 
   override def buildScan(requiredColumns: Array[String], filters: Array[Filter]): RDD[Row] = {
@@ -56,11 +53,8 @@ class JdbcRDD(
       def hasNext: Boolean = rs.next()
       def next: Row = {
         Row(
-          rs.getInt("id"),
           rs.getString("emp_name"),
-          rs.getString("dep_name"),
-          rs.getBigDecimal("salary").floatValue(),
-          rs.getBigDecimal("age").floatValue()
+          rs.getString("dep_name")
         )
       }
     }
@@ -103,6 +97,19 @@ object JdbcExampleV1 {
 
     df.printSchema()
     df.show()
+
+    spark.sql(
+      """
+        |CREATE TEMPORARY VIEW employee
+        |USING datasource.JdbcSourceV1
+        |OPTIONS (
+        |  url 'jdbc:mysql://localhost/spark',
+        |  user 'root',
+        |  password '',
+        |  table 'employee'
+        |)
+      """.stripMargin)
+    spark.sql("SELECT * FROM employee LIMIT 1").show()
 
     spark.stop()
   }

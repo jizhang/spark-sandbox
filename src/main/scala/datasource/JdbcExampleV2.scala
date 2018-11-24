@@ -7,6 +7,7 @@ import org.apache.spark.sql.sources.v2.reader.{DataReader, DataReaderFactory, Da
 import org.apache.spark.sql.sources.v2.{DataSourceOptions, DataSourceV2, ReadSupport}
 import org.apache.spark.sql.types._
 
+
 class JdbcSourceV2 extends DataSourceV2 with ReadSupport {
   def createReader(options: DataSourceOptions) = new JdbcDataSourceReader(
     options.get("url").get(),
@@ -15,6 +16,7 @@ class JdbcSourceV2 extends DataSourceV2 with ReadSupport {
     options.get("table").get()
   )
 }
+
 
 class JdbcDataSourceReader(
     url: String,
@@ -38,6 +40,7 @@ class JdbcDataSourceReader(
   }
 }
 
+
 class JdbcDataReaderFactory(
     url: String,
     user: String,
@@ -47,6 +50,7 @@ class JdbcDataReaderFactory(
 
   def createDataReader() = new JdbcDataReader(url, user, password, table)
 }
+
 
 class JdbcDataReader(
     url: String,
@@ -76,6 +80,7 @@ class JdbcDataReader(
   }
 }
 
+
 object JdbcExampleV2 {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession
@@ -93,6 +98,9 @@ object JdbcExampleV2 {
 
     df.printSchema()
     df.show()
+
+    df.createTempView("employee")
+    spark.sql("SELECT * FROM employee LIMIT 1").show()
 
     spark.stop()
   }
