@@ -2,11 +2,14 @@ package datasource
 
 import java.sql.{Connection, DriverManager, ResultSet}
 
+import org.apache.spark.sql.sources.{EqualTo, Filter}
 import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.spark.sql.sources.v2.reader._
 import org.apache.spark.sql.sources.v2.{DataSourceOptions, DataSourceV2, ReadSupport}
 import org.apache.spark.sql.types._
 import org.slf4j.LoggerFactory
+
+import scala.collection.mutable.ArrayBuffer
 
 
 class JdbcSourceV2 extends DataSourceV2 with ReadSupport {
@@ -24,7 +27,8 @@ class JdbcDataSourceReader(
     user: String,
     password: String,
     table: String)
-  extends DataSourceReader with SupportsPushDownRequiredColumns {
+  extends DataSourceReader with SupportsPushDownRequiredColumns
+  with SupportsPushDownFilters {
 
   val tableSchema = StructType(Seq(
     StructField("id", IntegerType),
@@ -35,13 +39,15 @@ class JdbcDataSourceReader(
   ))
 
   var prunedSchema = tableSchema
+  var filters = Array.empty[Filter]
+  var wheres = Array.empty[String]
 
   def readSchema = prunedSchema
 
   def createDataReaderFactories() = {
     val columns = prunedSchema.fields.map(_.name)
     val factoryList = new java.util.ArrayList[DataReaderFactory[Row]]
-    factoryList.add(new JdbcDataReaderFactory(url, user, password, table, columns))
+    factoryList.add(new JdbcDataReaderFactory(url, user, password, table, columns, wheres))
     factoryList
   }
 
@@ -50,6 +56,26 @@ class JdbcDataSourceReader(
     val fields = tableSchema.fields.filter(field => names(field.name.toLowerCase))
     prunedSchema = StructType(fields)
   }
+
+  def pushFilters(filters: Array[Filter]) = {
+    val pushed = ArrayBuffer.empty[Filter]
+    val rejected = ArrayBuffer.empty[Filter]
+    val wheres = ArrayBuffer.empty[String]
+
+    filters.foreach {
+      case filter: EqualTo => {
+        pushed += filter
+        wheres += s"${filter.attribute} = '${filter.value}'"
+      }
+      case filter => rejected += filter
+    }
+
+    this.filters = pushed.toArray
+    this.wheres = wheres.toArray
+    rejected.toArray
+  }
+
+  def pushedFilters = filters
 }
 
 
@@ -58,10 +84,11 @@ class JdbcDataReaderFactory(
     user: String,
     password: String,
     table: String,
-    columns: Seq[String])
+    columns: Seq[String],
+    wheres: Seq[String])
   extends DataReaderFactory[Row] {
 
-  def createDataReader() = new JdbcDataReader(url, user, password, table, columns)
+  def createDataReader() = new JdbcDataReader(url, user, password, table, columns, wheres)
 }
 
 
@@ -70,7 +97,8 @@ class JdbcDataReader(
     user: String,
     password: String,
     table: String,
-    columns: Seq[String])
+    columns: Seq[String],
+    wheres: Seq[String])
   extends DataReader[Row] {
 
   private val logger = LoggerFactory.getLogger(this.getClass)
@@ -80,8 +108,15 @@ class JdbcDataReader(
   def next() = {
     if (rs == null) {
       conn = DriverManager.getConnection(url, user, password)
-      val sql = s"SELECT ${columns.mkString(", ")} FROM $table"
+
+      val sqlBuilder = new StringBuilder()
+      sqlBuilder ++= s"SELECT ${columns.mkString(", ")} FROM $table"
+      if (wheres.nonEmpty) {
+        sqlBuilder ++= " WHERE " + wheres.mkString(" AND ")
+      }
+      val sql = sqlBuilder.toString
       logger.info(sql)
+
       val stmt = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY,
         ResultSet.CONCUR_READ_ONLY)
       stmt.setFetchSize(1000)
@@ -127,7 +162,7 @@ object JdbcExampleV2 {
     df.show()
 
     df.createTempView("employee")
-    val dfSelect = spark.sql("SELECT id, emp_name, age FROM employee LIMIT 1")
+    val dfSelect = spark.sql("SELECT id, emp_name, salary FROM employee WHERE dep_name = 'Management'")
     dfSelect.explain(true)
     dfSelect.show()
 
