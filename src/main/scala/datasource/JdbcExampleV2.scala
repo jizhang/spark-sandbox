@@ -9,6 +9,7 @@ import org.apache.spark.sql.sources.v2.{DataSourceOptions, DataSourceV2, ReadSup
 import org.apache.spark.sql.types._
 import org.slf4j.LoggerFactory
 
+import collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 
 
@@ -46,9 +47,11 @@ class JdbcDataSourceReader(
 
   def createDataReaderFactories() = {
     val columns = prunedSchema.fields.map(_.name)
-    val factoryList = new java.util.ArrayList[DataReaderFactory[Row]]
-    factoryList.add(new JdbcDataReaderFactory(url, user, password, table, columns, wheres))
-    factoryList
+    Seq((1, 6), (7, 11)).map { case (minId, maxId) =>
+      val partition = s"id BETWEEN $minId AND $maxId"
+      new JdbcDataReaderFactory(url, user, password, table, columns, wheres, partition)
+        .asInstanceOf[DataReaderFactory[Row]]
+    }.asJava
   }
 
   def pruneColumns(requiredSchema: StructType) = {
@@ -85,10 +88,11 @@ class JdbcDataReaderFactory(
     password: String,
     table: String,
     columns: Seq[String],
-    wheres: Seq[String])
+    wheres: Seq[String],
+    partition: String)
   extends DataReaderFactory[Row] {
 
-  def createDataReader() = new JdbcDataReader(url, user, password, table, columns, wheres)
+  def createDataReader() = new JdbcDataReader(url, user, password, table, columns, wheres, partition)
 }
 
 
@@ -98,7 +102,8 @@ class JdbcDataReader(
     password: String,
     table: String,
     columns: Seq[String],
-    wheres: Seq[String])
+    wheres: Seq[String],
+    partition: String)
   extends DataReader[Row] {
 
   private val logger = LoggerFactory.getLogger(this.getClass)
@@ -110,9 +115,9 @@ class JdbcDataReader(
       conn = DriverManager.getConnection(url, user, password)
 
       val sqlBuilder = new StringBuilder()
-      sqlBuilder ++= s"SELECT ${columns.mkString(", ")} FROM $table"
+      sqlBuilder ++= s"SELECT ${columns.mkString(", ")} FROM $table WHERE $partition"
       if (wheres.nonEmpty) {
-        sqlBuilder ++= " WHERE " + wheres.mkString(" AND ")
+        sqlBuilder ++= " AND " + wheres.mkString(" AND ")
       }
       val sql = sqlBuilder.toString
       logger.info(sql)
