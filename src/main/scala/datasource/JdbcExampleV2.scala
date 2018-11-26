@@ -10,7 +10,7 @@ import org.apache.spark.sql.types._
 import org.slf4j.LoggerFactory
 
 import collection.JavaConverters._
-import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable.ListBuffer
 
 
 class JdbcSourceV2 extends DataSourceV2 with ReadSupport {
@@ -31,7 +31,7 @@ class JdbcDataSourceReader(
   extends DataSourceReader with SupportsPushDownRequiredColumns
   with SupportsPushDownFilters {
 
-  val tableSchema = StructType(Seq(
+  var requiredSchema = StructType(Seq(
     StructField("id", IntegerType),
     StructField("emp_name", StringType),
     StructField("dep_name", StringType),
@@ -39,14 +39,13 @@ class JdbcDataSourceReader(
     StructField("age", DecimalType(3, 0))
   ))
 
-  var prunedSchema = tableSchema
   var filters = Array.empty[Filter]
   var wheres = Array.empty[String]
 
-  def readSchema = prunedSchema
+  def readSchema = requiredSchema
 
   def createDataReaderFactories() = {
-    val columns = prunedSchema.fields.map(_.name)
+    val columns = requiredSchema.fields.map(_.name)
     Seq((1, 6), (7, 11)).map { case (minId, maxId) =>
       val partition = s"id BETWEEN $minId AND $maxId"
       new JdbcDataReaderFactory(url, user, password, table, columns, wheres, partition)
@@ -55,27 +54,25 @@ class JdbcDataSourceReader(
   }
 
   def pruneColumns(requiredSchema: StructType) = {
-    val names = requiredSchema.fields.map(_.name.toLowerCase).toSet
-    val fields = tableSchema.fields.filter(field => names(field.name.toLowerCase))
-    prunedSchema = StructType(fields)
+    this.requiredSchema = requiredSchema
   }
 
   def pushFilters(filters: Array[Filter]) = {
-    val pushed = ArrayBuffer.empty[Filter]
-    val rejected = ArrayBuffer.empty[Filter]
-    val wheres = ArrayBuffer.empty[String]
+    val supported = ListBuffer.empty[Filter]
+    val unsupported = ListBuffer.empty[Filter]
+    val wheres = ListBuffer.empty[String]
 
     filters.foreach {
       case filter: EqualTo => {
-        pushed += filter
+        supported += filter
         wheres += s"${filter.attribute} = '${filter.value}'"
       }
-      case filter => rejected += filter
+      case filter => unsupported += filter
     }
 
-    this.filters = pushed.toArray
+    this.filters = supported.toArray
     this.wheres = wheres.toArray
-    rejected.toArray
+    unsupported.toArray
   }
 
   def pushedFilters = filters
