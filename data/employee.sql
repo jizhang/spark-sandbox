@@ -1,5 +1,10 @@
-CREATE TABLE employee (id INT, emp_name VARCHAR(20), dep_name VARCHAR(20),
-salary DECIMAL(7, 2), age DECIMAL(3, 0));
+CREATE TABLE employee (
+  id INT PRIMARY KEY
+  ,emp_name VARCHAR(20)
+  ,dep_name VARCHAR(20)
+  ,salary DECIMAL(7, 2)
+  ,age DECIMAL(3, 0)
+);
 
 INSERT INTO employee VALUES
 ( 1,  'Matthew', 'Management',  4500, 55),
