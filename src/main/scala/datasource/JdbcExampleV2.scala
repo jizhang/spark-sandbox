@@ -270,7 +270,7 @@ object JdbcExampleV2 {
     df.show()
 
     df.createTempView("employee")
-    val dfSelect = spark.sql("SELECT id, emp_name, salary FROM employee WHERE dep_name = 'Management'")
+    val dfSelect = spark.sql("SELECT COUNT(*), AVG(salary) FROM employee WHERE dep_name = 'Management'")
     dfSelect.explain(true)
     dfSelect.show()
 
