@@ -14,7 +14,8 @@ class JdbcSourceV1 extends RelationProvider {
   override def createRelation(
       sqlContext: SQLContext,
       parameters: Map[String, String]): BaseRelation = {
-    JdbcRelationV1(
+
+    new JdbcRelationV1(
       parameters("url"),
       parameters("user"),
       parameters("password"),
@@ -24,7 +25,7 @@ class JdbcSourceV1 extends RelationProvider {
 }
 
 
-case class JdbcRelationV1(
+class JdbcRelationV1(
     url: String,
     user: String,
     password: String,
